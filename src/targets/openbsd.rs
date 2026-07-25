@@ -1,10 +1,20 @@
-use crate::config::{fetch_text_or_file_with_security, AppError, FetchMirrors, LogFormatter};
+use crate::config::{AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
+use crate::sources::{fetch_source_text, LocalSource, MirrorSourceChain};
 use crate::target_configs::openbsd::OpenBSDTarget;
 use std::fmt::Display;
 use std::sync::mpsc;
 use url::Url;
+
+static LOCAL_SOURCES: &[LocalSource] = &[LocalSource::curated(
+    "/etc/rate-mirrors/sources/openbsd-ftplist.txt",
+)];
+
+static SOURCE: MirrorSourceChain = MirrorSourceChain {
+    local: LOCAL_SOURCES,
+    remote: "https://ftp.openbsd.org/pub/OpenBSD/ftplist",
+};
 
 impl LogFormatter for OpenBSDTarget {
     fn format_comment(&self, message: impl Display) -> String {
@@ -19,13 +29,15 @@ impl LogFormatter for OpenBSDTarget {
 impl FetchMirrors for OpenBSDTarget {
     fn fetch_mirrors(
         &self,
-        _tx_progress: mpsc::Sender<String>,
+        tx_progress: mpsc::Sender<String>,
         source_security: &crate::config::SourceSecurityConfig,
     ) -> Result<Vec<Mirror>, AppError> {
-        let output = fetch_text_or_file_with_security(
-            &self.mirror_source,
+        let output = fetch_source_text(
+            self.mirror_source.as_deref(),
+            &SOURCE,
             self.fetch_mirrors_timeout,
             source_security,
+            &tx_progress,
         )?;
 
         let urls = output

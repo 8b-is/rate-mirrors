@@ -1,23 +1,28 @@
 # Rate Mirrors
 
-![Tag Badge](https://img.shields.io/github/tag/westandskif/rate-mirrors.svg)
 [![License: CC BY-NC-SA 3.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%203.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/3.0/)
 
-A fast mirror ranking tool that finds the best mirrors for your Linux distribution. It uses submarine cable and internet exchange data to intelligently hop between countries and discover fast mirrors in ~30 seconds.
-Current version: 0.29.0
+A fast mirror ranking tool for Arch-based distributions. It uses submarine cable and
+internet exchange data to hop between countries and find genuinely fast mirrors in
+about 30 seconds — then checks that the mirrors it picked are serving the same
+repository everyone else is.
+
+Maintained by [8b-is](https://github.com/8b-is/rate-mirrors).
+Current version: 0.30.0
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Supported Distributions](#supported-distributions)
-- [Usage](#usage)
-- [Common Options](#common-options)
+- [Where mirror lists come from](#where-mirror-lists-come-from)
+- [Mirror verification](#mirror-verification)
+- [Choosing which mirrors you will accept](#choosing-which-mirrors-you-will-accept)
+- [Options](#options)
 - [Algorithm](#algorithm)
 - [Examples](#examples)
-- [Troubleshooting](#troubleshooting)
 - [Exit Codes](#exit-codes)
-- [License](#license)
+- [Credits and License](#credits-and-license)
 
 ## Quick Start
 
@@ -25,10 +30,13 @@ Current version: 0.29.0
 # Arch Linux
 rate-mirrors arch | sudo tee /etc/pacman.d/mirrorlist
 
-# Manjaro
-rate-mirrors manjaro | sudo tee /etc/pacman.d/mirrorlist
+# CachyOS
+rate-mirrors cachyos | sudo tee /etc/pacman.d/cachyos-mirrorlist
 
-# With backup
+# Skip mirrors in countries you would rather not pull packages from
+rate-mirrors --exclude-countries=RU,CN arch | sudo tee /etc/pacman.d/mirrorlist
+
+# With a backup
 export TMPFILE="$(mktemp)"; \
     rate-mirrors --save=$TMPFILE arch --max-delay=21600 \
     && sudo mv /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist-backup \
@@ -38,45 +46,45 @@ export TMPFILE="$(mktemp)"; \
 rate-mirrors --help
 ```
 
+No configuration is required. Every subcommand works on a fresh system with no
+flags and no files to set up first.
+
 ## Installation
 
-| Platform | Command | Notes |
-|----------|---------|-------|
-| Arch Linux (default) | `sudo pacman -S rate-mirrors` | Pre-built, dynamically linked glibc |
-| Arch Linux (AUR, binary) | `yay -S rate-mirrors-bin` | Pre-built, statically linked musl |
-| Arch Linux (AUR, source) | `yay -S rate-mirrors-git` | Build from source, dynamically linked glibc |
-| OpenBSD | `pkg_add rate-mirrors` | From ports |
-| GitHub Releases | [Download](https://github.com/westandskif/rate-mirrors/releases) | Pre-built binaries |
-| From source | `cargo build --release --locked` | Requires Rust toolchain |
-| From this tree | `./install.sh` or `./install.sh --system` | Builds release + installs `rate-mirrors` (see below) |
+| Method | Command |
+|--------|---------|
+| Arch package (this fork) | `makepkg -si` from the included [`PKGBUILD`](PKGBUILD) |
+| From a git checkout | `./install.sh --system` |
+| From source | `cargo build --release --locked` |
+
+The package `provides`/`conflicts` `rate-mirrors`, installs the same
+`/usr/bin/rate-mirrors`, and keeps the same command-line interface — so
+`cachyos-rate-mirrors` and any other wrapper keep working unchanged.
 
 ### Install from a git checkout
 
 ```bash
-# One-shot on CachyOS (recommended):
-#   build → install to /usr/bin → smoke test → pacman -Syu → reinstall (if package overwrote us) → rank mirrors
+# One-shot on CachyOS: build → install to /usr/bin → smoke test →
+# pacman -Syu → reinstall (if the package overwrote us) → rank mirrors
 ./install.sh --all
 
-# Unattended system update
+# Unattended
 ./install.sh --all --noconfirm
 
-# Exclude extra countries (default for --all is RU)
+# Exclude extra countries
 ./install.sh --all --exclude-countries=RU,CN
 
-# Install only (no pacman / no ranking)
+# Install only
 ./install.sh --system --smoke
 
-# Default prefix: /usr/local/bin
-./install.sh
-
-# User-local (no root; may not be on sudo's PATH)
-./install.sh --user
-
-# Re-rank only after a prior install
+# Re-rank only, after a prior install
 ./install.sh --rank-only --exclude-countries=RU
 ```
 
-`--smoke` / the smoke steps in `--all` check that country filtering is live (`COUNTRY FILTER:` in the log, not `BLANK ITERATION`). Until the CachyOS country-parse fix is in your distro package, re-run `./install.sh --system` or `./install.sh --all` after updates that replace `/usr/bin/rate-mirrors`.
+Until this fork is packaged by your distribution, a `pacman -Syu` that ships the
+upstream `rate-mirrors` package will replace `/usr/bin/rate-mirrors`. Re-run
+`./install.sh --system` afterwards, or build the included `PKGBUILD` so pacman
+tracks this version as the installed one.
 
 ## Supported Distributions
 
@@ -90,9 +98,9 @@ rate-mirrors --help
 | `rate-mirrors arcolinux` | ArcoLinux | |
 | `rate-mirrors artix` | Artix Linux | |
 | `rate-mirrors blackarch` | BlackArch Linux | |
-| `rate-mirrors cachyos` | CachyOS | |
-| `rate-mirrors chaotic-aur` | Chaotic-AUR | Arch Linux repository |
-| `rate-mirrors archlinuxcn` | Arch Linux CN | Chinese community repo |
+| `rate-mirrors cachyos` | CachyOS | Reads `code=XX` country metadata |
+| `rate-mirrors chaotic-aur` | Chaotic-AUR | |
+| `rate-mirrors archlinuxcn` | Arch Linux CN | |
 | `rate-mirrors endeavouros` | EndeavourOS | Skips outdated mirrors |
 | `rate-mirrors manjaro` | Manjaro | Skips outdated mirrors |
 | `rate-mirrors rebornos` | RebornOS | |
@@ -102,77 +110,172 @@ rate-mirrors --help
 | Command | Distribution |
 |---------|-------------|
 | `rate-mirrors openbsd` | OpenBSD |
-| `rate-mirrors stdin` | Custom mirrors (see [Advanced Usage](#advanced-usage-stdin)) |
+| `rate-mirrors stdin` | Custom mirrors (see [below](#custom-mirrors-via-stdin)) |
 
-## Usage
+## Where mirror lists come from
+
+Before it can rank anything, `rate-mirrors` needs a list of candidate mirrors. It
+looks for one in this order and uses the first that works:
+
+1. **What you passed** — `--mirror-source` / `--mirror-list-file`, or the matching
+   environment variable. If you name a source explicitly it is used exactly as
+   given, with no fallback: naming one source and silently ranking another would
+   be worse than failing.
+2. **A file you control** — `/etc/rate-mirrors/sources/<distro>-mirrorlist.txt`.
+   Drop a list here and that is the only set of mirrors the machine will ever
+   consider. Nothing writes to this directory but you.
+3. **Your distribution's packaged list** — for CachyOS, `/etc/pacman.d/cachyos-mirrorlist`,
+   which arrives signed as part of a package and needs no network round trip.
+4. **The list your distribution publishes** — fetched over HTTPS.
+
+Every run prints which one it used:
 
 ```
-rate-mirrors [OPTIONS] <SUBCOMMAND> [SUBCOMMAND-OPTIONS]
+# MIRROR SOURCE: skipping /etc/rate-mirrors/sources/cachyos-mirrorlist.txt (not present)
+# MIRROR SOURCE: /etc/pacman.d/cachyos-mirrorlist (local)
 ```
 
-- Run `rate-mirrors --help` to see base options
-- Run `rate-mirrors <subcommand> --help` to see subcommand-specific options
-- The tool doesn't need root; use `--allow-root` if you must run as root
-- Mirror sources are **local-first** by default (`/etc/rate-mirrors/sources/...`); remote mirror-source URLs are blocked unless `--allow-remote-sources` is set
-- Use `--mirror-source-sha256=<hex>` to enforce source integrity checks (fail-closed on mismatch)
-- If the configured local mirror-source file is missing or invalid, the run fails with an error (no implicit remote fallback)
+A missing local file is normal and not an error — it just means the next source in
+the chain is used.
 
-## Common Options
+### Pinning a mirror source
+
+To decide once which mirrors a machine will use and stop consulting the network:
+
+```bash
+sudo mkdir -p /etc/rate-mirrors/sources
+sudo cp my-vetted-mirrors.txt /etc/rate-mirrors/sources/cachyos-mirrorlist.txt
+
+# Ranks only the mirrors in that file, and fails rather than fetching a list
+rate-mirrors --no-remote-sources cachyos
+```
+
+`--mirror-source-sha256=<hex>` additionally refuses to proceed unless the source
+content hashes to exactly what you expect.
+
+> **Note on step 3.** The CachyOS wrapper writes ranked output back over
+> `/etc/pacman.d/cachyos-mirrorlist`. Reading that back would re-rank only the
+> survivors of the last run, shrinking the pool a little further every time. So the
+> packaged list is only used while it still carries the `code=` country metadata
+> that the shipped file has and our output does not; once rewritten, it is skipped.
+
+## Mirror verification
+
+Being fast says nothing about whether a mirror is serving the same packages as
+everyone else. After ranking, and before writing anything out, each mirror is
+cross-checked against the others.
+
+Every mirror's repository database is fingerprinted:
+
+- the detached signature next to it (`<db>.sig`), hashed — used where the repository
+  publishes one, as CachyOS does
+- otherwise the database's size — Arch [deliberately does not sign its
+  databases](https://wiki.archlinux.org/title/Pacman/Package_signing), so for those
+  repositories the size of a given database generation is the corroborating signal
+
+Mirrors are then grouped by fingerprint, and **a mirror serving something no other
+mirror corroborates is dropped**:
+
+```
+# ==== VERIFYING MIRRORS ====
+#     https://us.cachyos.org/repo/ db.sig c270e9a66d16 - 12 agreeing, synced 8h ago, DNSSEC
+#     https://mirror.hjk.gg/cachyos/repo/ db.sig c270e9a66d16 - 12 agreeing, synced 8h ago
+#     CONSENSUS: 12/12 mirrors serve the same database
+```
+
+Corroboration is used rather than comparison against one trusted reference on
+purpose: a reference host is one DNS answer away from being the attacker, whereas
+agreeing with a dozen independently operated mirrors is not something a hijacked
+resolver or a single bad operator can manufacture. Mirrors that are simply behind
+still pass — a lagging database generation that two or more mirrors share is
+corroborated, so honest mirrors are not punished for sync timing.
+
+**Verification never returns an empty mirrorlist.** If every mirror fails, the
+ranking is returned unverified with a warning, because an unattended installer
+writing an empty list would leave a machine with no repositories at all.
+
+### DNSSEC
+
+Each mirror's hostname is checked against a validating resolver over HTTPS, out of
+band, since a subverted local resolver cannot be asked to vouch for itself. Mirrors
+in DNSSEC-signed zones are preferred over unsigned ones **of comparable speed**
+(within 10%), so a meaningfully faster mirror is never demoted for being unsigned.
+
+Signed zones are still a minority among distro mirrors, which is why this is a
+preference rather than a requirement. `--require-dnssec` makes it a requirement and
+will discard most of the pool; `--no-dnssec-check` skips the lookup entirely.
+
+| Option | Description |
+|--------|-------------|
+| `--no-verify-mirrors` | Skip verification completely |
+| `--max-mirror-age=HOURS` | Drop mirrors whose database is older than this |
+| `--require-dnssec` | Drop mirrors not in a DNSSEC-signed zone |
+| `--no-dnssec-check` | Skip the DNSSEC lookup |
+| `--doh-resolver=URL` | Resolver to use (default: Cloudflare) |
+| `--verify-timeout=MS` | Per-request timeout (default: 10000) |
+
+## Choosing which mirrors you will accept
+
+`--exclude-countries` takes comma-separated ISO country codes and applies to every
+target:
+
+```bash
+rate-mirrors --exclude-countries=RU,CN cachyos
+```
+
+Every option has a matching environment variable, which is how to configure a
+wrapper script or a graphical installer that calls `rate-mirrors` without letting
+you pass flags:
+
+```bash
+export RATE_MIRRORS_EXCLUDE_COUNTRIES=RU,CN
+sudo -E cachyos-rate-mirrors
+```
+
+Mirrors with no country metadata are kept by default; exclude them with the `ZZ`
+pseudo-code. To go further and decide the entire candidate set yourself, pin a
+mirror source as described [above](#pinning-a-mirror-source).
+
+## Options
+
+Run `rate-mirrors --help` for base options and `rate-mirrors <subcommand> --help`
+for per-distribution ones.
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--save=FILE` | Save output to file instead of stdout | - |
-| `--concurrency=N` | Number of simultaneous speed tests | 16 |
+| `--save=FILE` | Save output to a file instead of stdout | - |
+| `--concurrency=N` | Simultaneous speed tests | 16 |
 | `--max-jumps=N` | Maximum country hops | 7 |
 | `--entry-country=CC` | Starting country code | US |
-| `--exclude-countries=CC,CC` | Exclude countries (comma-separated codes) | - |
-| `--protocol=PROTO` | Test only specified protocol (http/https) | - |
+| `--exclude-countries=CC,CC` | Exclude countries | - |
+| `--protocol=PROTO` | Test only http or https | - |
 | `--max-mirrors-to-output=N` | Maximum mirrors to output | - |
-| `--disable-comments` | Disable printing comments | false |
-| `--disable-untested-fallback` | Exit with error when all speed tests fail instead of outputting untested mirrors | false |
+| `--disable-comments` | Do not print comments | false |
+| `--disable-untested-fallback` | Fail instead of returning untested mirrors | false |
 | `--allow-root` | Allow running as root | false |
-| `--allow-remote-sources` | Allow mirror-source inputs from remote URLs | false |
-| `--mirror-source-sha256=HEX64` | Verify mirror-source payload SHA-256 before parsing | - |
+| `--no-remote-sources` | Use only local mirror sources | false |
+| `--mirror-source-sha256=HEX64` | Require the source to hash to this | - |
 
-## Security Model (Mirror Source Hardening)
-
-- Default mirror-source inputs now point to local vetted files under `/etc/rate-mirrors/sources/`.
-- Remote mirror-source ingestion is explicit opt-in only (`--allow-remote-sources`).
-- Mirror-source payload integrity can be pinned with `--mirror-source-sha256`.
-- JSON sources are parsed fail-closed with strict schema validation.
-- Missing local source files fail immediately; explicitly pass `--allow-remote-sources` and a remote `--mirror-source/--mirror-list-file` only when you intend network retrieval.
-
-### Subcommand Options (arch example)
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--completion=N` | Minimum sync completion (0.0-1.0) | 1.0 |
-| `--sort-mirrors-by=MODE` | Sort by: score_asc, score_desc, delay_asc, delay_desc | score_asc |
+The tool does not need root. `--allow-root` exists for installers and wrappers that
+already run as root.
 
 ## Algorithm
 
-The tool uses:
-- Submarine cable connections data
-- Internet exchange locations and counts per country
-- Continental groupings for geographic proximity
+1. Fetch the candidate mirrors (see [above](#where-mirror-lists-come-from))
+2. Filter by protocol, country, and distribution-specific freshness data
+3. Starting from the entry country, find neighbours by major internet hubs (first
+   two jumps) and geographic proximity (every jump)
+4. Speed-test mirrors per country, tracking fastest and lowest-latency
+5. Jump to the countries of the best mirrors and repeat
+6. Re-test the top mirrors sequentially for a final ranking
+7. Cross-check the survivors and drop uncorroborated ones
 
-### How it works (arch example):
-
-1. Fetch mirrors from [Arch Linux Mirror Status](https://archlinux.org/mirrors/status/json/)
-2. Filter out incomplete or outdated mirrors
-3. Sort by mirror score
-4. Starting from entry country, find neighbor countries using:
-   - Major internet hubs (first two jumps)
-   - Geographic proximity (every jump)
-5. Test mirrors from each country, track fastest and lowest-latency
-6. Jump to countries of best mirrors, repeat
-7. After max jumps, re-test top mirrors sequentially and output final ranking
-
-**Data attribution:** Submarine cable and IX data from [TeleGeography](https://www2.telegeography.com).
+**Data attribution:** submarine cable and internet exchange data from
+[TeleGeography](https://www2.telegeography.com).
 
 ## Examples
 
-### Everyday use on Arch Linux
+### Everyday use
 
 ```bash
 alias ua-drop-caches='sudo paccache -rk3; yay -Sc --aur --noconfirm'
@@ -185,49 +288,37 @@ alias ua-update-all='export TMPFILE="$(mktemp)"; \
       && yay -Syyu --noconfirm'
 ```
 
-Notes:
-- `sudo true` prompts for password at the start
-- `paccache` is from `pacman-contrib`
-- `yay` is an AUR helper
+`sudo true` prompts for the password up front, `paccache` comes from
+`pacman-contrib`, and `yay` is an AUR helper. Add to `~/.bashrc` and run
+`ua-update-all`.
 
-Add to `~/.bashrc` or `~/.zshrc`, then run `ua-update-all`.
-
-### Output example
+### Output
 
 ```
-# STARTED AT: 2025-08-31 14:04:21.217766 +03:00
-# ARGS: rate-mirrors arch
-# FETCHED MIRRORS: 1147
-# MIRRORS LEFT AFTER FILTERING: 730
+# STARTED AT: 2026-07-25 02:17:04 -04:00
+# VERSION: 0.30.0
+# ARGS: rate-mirrors --exclude-countries=RU cachyos
+# MIRROR SOURCE: /etc/pacman.d/cachyos-mirrorlist (local)
+# COUNTRY FILTER: 29 -> 25 mirrors
 # JUMP #1
 # EXPLORING US
-#     + NEIGHBOR UK (by HubsFirst)
-#     + NEIGHBOR DE (by DistanceFirst)
-# [DE] SpeedTestResult { speed: 29.0 MB/s; elapsed: 1.00s; connection_time: 79ms }
+#     + NEIGHBOR CA (by HubsFirst)
+# [US] SpeedTestResult { speed: 54.5 MB/s; elapsed: 107ms; connection_time: 49ms }
 # ...
-# RE-TESTING TOP MIRRORS
-# [SE] SpeedTestResult { speed: 64.6 MB/s; elapsed: 745ms; connection_time: 122ms }
-# [BY] SpeedTestResult { speed: 61.2 MB/s; elapsed: 786ms; connection_time: 16ms }
+# ==== VERIFYING MIRRORS ====
+#     https://us.cachyos.org/repo/ db.sig c270e9a66d16 - 12 agreeing, synced 8h ago, DNSSEC
+#     CONSENSUS: 12/12 mirrors serve the same database
 # ==== RESULTS (top re-tested) ====
-#   1. [SE] 64.6 MB/s -> https://mirror.osbeck.com/archlinux/
-#   2. [BY] 61.2 MB/s -> http://mirror.datacenter.by/pub/archlinux/
-#   3. [LT] 54.1 MB/s -> http://mirrors.atviras.lt/archlinux/
-# FINISHED AT: 2025-08-31 14:04:40.296066 +03:00
-Server = https://mirror.osbeck.com/archlinux/$repo/os/$arch
-Server = http://mirror.datacenter.by/pub/archlinux/$repo/os/$arch
-Server = http://mirrors.atviras.lt/archlinux/$repo/os/$arch
+#   1. [US] SpeedTestResult { speed: 54.5 MB/s; ... } -> https://us.cachyos.org/repo/
+Server = https://us.cachyos.org/repo/$arch/$repo
 ```
 
-### Advanced Usage: stdin
+### Custom mirrors via stdin
 
-For custom mirror lists or unsupported distributions:
+For unsupported distributions or a hand-built list:
 
 ```bash
-# Input format (tab-separated):
-# URL
-# COUNTRY<tab>URL
-# URL<tab>COUNTRY
-
+# Input: URL | COUNTRY<tab>URL | URL<tab>COUNTRY
 cat mirrors.txt | rate-mirrors --concurrency=40 stdin \
     --path-to-test="extra/os/x86_64/extra.files" \
     --path-to-return='$repo/os/$arch' \
@@ -235,7 +326,6 @@ cat mirrors.txt | rate-mirrors --concurrency=40 stdin \
     --output-prefix="Server = "
 ```
 
-Example `mirrors.txt`:
 ```
 https://mirror-a.example.org/repo/
 US	https://mirror-b.example.org/repo/
@@ -247,12 +337,16 @@ https://mirror-c.example.org/repo/	DE
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Error (network failure, invalid arguments, etc.) |
+| 1 | Error (network failure, invalid arguments, no usable mirror source, ...) |
 
-## License
+## Credits and License
 
-[Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported (CC BY-NC-SA 3.0)](https://creativecommons.org/licenses/by-nc-sa/3.0/)
+Originally written by **Nikita Almakov** as
+[westandskif/rate-mirrors](https://github.com/westandskif/rate-mirrors), and
+previously known as *Rate Arch Mirrors*. This repository is a fork maintained by
+[8b-is](https://github.com/8b-is); the original work and the design of the
+country-hopping ranking algorithm are his.
 
----
-
-<sub>Previously known as "Rate Arch Mirrors" (changed in v0.4.0). [View old README](https://github.com/westandskif/rate-mirrors/blob/98f6417ff30b5148ab80f742c8eb729b78ca20c1/README.md)</sub>
+Licensed under
+[Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported (CC BY-NC-SA 3.0)](https://creativecommons.org/licenses/by-nc-sa/3.0/),
+the same licence as the original, as ShareAlike requires.

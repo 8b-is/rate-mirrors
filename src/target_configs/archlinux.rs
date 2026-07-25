@@ -1,8 +1,6 @@
 use clap::Args;
 use std::str::FromStr;
 
-pub const ARCH_MIRROR_SOURCE_DEFAULT: &str = "/etc/rate-mirrors/sources/archlinux-status.json";
-
 #[derive(Debug, Clone)]
 pub enum ArchMirrorsSortingStrategy {
     DelayAsc,
@@ -73,15 +71,15 @@ pub struct ArchTarget {
     )]
     pub fetch_mirrors_timeout: u64,
 
-    /// Either url or path to Arch Linux mirrors status JSON file
+    /// Url or path to a mirror source, overriding the default lookup:
+    ///   local files first, then the list published upstream
     #[arg(
         env = "RATE_MIRRORS_MIRROR_SOURCE",
         long,
-        default_value = ARCH_MIRROR_SOURCE_DEFAULT,
         conflicts_with = "fetch_first_tier_only",
         verbatim_doc_comment
     )]
-    pub mirror_source: String,
+    pub mirror_source: Option<String>,
 
     /// comment prefix to use when outputting
     #[arg(env = "RATE_MIRRORS_COMMENT_PREFIX", long, default_value = "# ")]

@@ -1,6 +1,7 @@
-use crate::config::{fetch_text_or_file_with_security, AppError, FetchMirrors, LogFormatter};
+use crate::config::{AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
+use crate::sources::{fetch_source_text, LocalSource, MirrorSourceChain};
 use crate::target_configs::endeavouros::EndeavourOSTarget;
 use futures::future::join_all;
 use reqwest;
@@ -92,6 +93,15 @@ fn version_mirrors(
     result
 }
 
+static LOCAL_SOURCES: &[LocalSource] = &[LocalSource::curated(
+    "/etc/rate-mirrors/sources/endeavouros-mirrorlist.txt",
+)];
+
+static SOURCE: MirrorSourceChain = MirrorSourceChain {
+    local: LOCAL_SOURCES,
+    remote: "https://raw.githubusercontent.com/endeavouros-team/PKGBUILDS/master/endeavouros-mirrorlist/endeavouros-mirrorlist",
+};
+
 impl LogFormatter for EndeavourOSTarget {
     fn format_comment(&self, message: impl Display) -> String {
         format!("{}{}", self.comment_prefix, message)
@@ -108,10 +118,12 @@ impl FetchMirrors for EndeavourOSTarget {
         tx_progress: mpsc::Sender<String>,
         source_security: &crate::config::SourceSecurityConfig,
     ) -> Result<Vec<Mirror>, AppError> {
-        let output = fetch_text_or_file_with_security(
-            &self.mirror_list_file,
+        let output = fetch_source_text(
+            self.mirror_list_file.as_deref(),
+            &SOURCE,
             self.fetch_mirrors_timeout,
             source_security,
+            &tx_progress,
         )?;
 
         let mut current_country = None;

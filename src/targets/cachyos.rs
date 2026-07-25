@@ -1,6 +1,7 @@
-use crate::config::{fetch_text_or_file_with_security, AppError, FetchMirrors, LogFormatter};
+use crate::config::{AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
+use crate::sources::{fetch_source_text, LocalSource, MirrorSourceChain};
 use crate::target_configs::cachyos::CachyOSTarget;
 use std::fmt::Display;
 use std::sync::mpsc;
@@ -21,6 +22,21 @@ fn parse_country_code_from_line(line: &str) -> Option<&'static Country> {
         None
     }
 }
+
+// The packaged list is preferred over fetching from GitHub when it is still the
+// one CachyOS shipped: it is signed as part of the package and needs no network.
+// `cachyos-rate-mirrors` writes our ranked output back over that same path, so
+// the `code=` marker is what tells the two apart -- without it we would re-rank
+// only the survivors of the previous run, shrinking the pool every time.
+static LOCAL_SOURCES: &[LocalSource] = &[
+    LocalSource::curated("/etc/rate-mirrors/sources/cachyos-mirrorlist.txt"),
+    LocalSource::packaged("/etc/pacman.d/cachyos-mirrorlist", "code="),
+];
+
+static SOURCE: MirrorSourceChain = MirrorSourceChain {
+    local: LOCAL_SOURCES,
+    remote: "https://raw.githubusercontent.com/CachyOS/CachyOS-PKGBUILDS/master/cachyos-mirrorlist/cachyos-mirrorlist",
+};
 
 impl LogFormatter for CachyOSTarget {
     fn format_comment(&self, message: impl Display) -> String {
@@ -44,10 +60,12 @@ impl FetchMirrors for CachyOSTarget {
         tx_progress: mpsc::Sender<String>,
         source_security: &crate::config::SourceSecurityConfig,
     ) -> Result<Vec<Mirror>, AppError> {
-        let output = fetch_text_or_file_with_security(
-            &self.mirror_list_file,
+        let output = fetch_source_text(
+            self.mirror_list_file.as_deref(),
+            &SOURCE,
             self.fetch_mirrors_timeout,
             source_security,
+            &tx_progress,
         )?;
 
         let mut current_country = None;

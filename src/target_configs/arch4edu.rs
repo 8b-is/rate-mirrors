@@ -10,14 +10,10 @@ pub struct Arch4eduTarget {
     )]
     pub fetch_mirrors_timeout: u64,
 
-    /// Either url or path to Arch4edu mirror list file
-    #[arg(
-        env = "RATE_MIRRORS_MIRROR_LIST_FILE",
-        long,
-        default_value = "/etc/rate-mirrors/sources/arch4edu-mirrorlist.txt",
-        verbatim_doc_comment
-    )]
-    pub mirror_list_file: String,
+    /// Url or path to a mirror list, overriding the default lookup:
+    ///   local files first, then the list published upstream
+    #[arg(env = "RATE_MIRRORS_MIRROR_LIST_FILE", long, verbatim_doc_comment)]
+    pub mirror_list_file: Option<String>,
 
     /// Path to be joined to a mirror url and used for speed testing
     ///   the file should be big enough to allow for testing high

@@ -1,8 +1,9 @@
 // https://wiki.manjaro.org/index.php/Change_to_a_Different_Download_Server
 
-use crate::config::{fetch_json_or_file_with_security, AppError, FetchMirrors, LogFormatter};
+use crate::config::{AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
+use crate::sources::{fetch_source_json, LocalSource, MirrorSourceChain};
 use crate::target_configs::manjaro::{ManjaroBranch, ManjaroTarget};
 use serde::{Deserialize, Deserializer};
 use std::fmt::Display;
@@ -18,7 +19,6 @@ use url::Url;
 //   },
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(deny_unknown_fields)]
 pub struct ManjaroMirrorData {
     branches: Vec<i8>,
     country: String,
@@ -42,6 +42,15 @@ where
     Ok(None)
 }
 
+static LOCAL_SOURCES: &[LocalSource] = &[LocalSource::curated(
+    "/etc/rate-mirrors/sources/manjaro-status.json",
+)];
+
+static SOURCE: MirrorSourceChain = MirrorSourceChain {
+    local: LOCAL_SOURCES,
+    remote: "https://repo.manjaro.org/status.json",
+};
+
 impl LogFormatter for ManjaroTarget {
     fn format_comment(&self, message: impl Display) -> String {
         format!("{}{}", self.comment_prefix, message)
@@ -58,10 +67,12 @@ impl FetchMirrors for ManjaroTarget {
         tx_progress: mpsc::Sender<String>,
         source_security: &crate::config::SourceSecurityConfig,
     ) -> Result<Vec<Mirror>, AppError> {
-        let mirrors_data: Vec<ManjaroMirrorData> = fetch_json_or_file_with_security(
-            &self.mirror_source,
+        let mirrors_data: Vec<ManjaroMirrorData> = fetch_source_json(
+            self.mirror_source.as_deref(),
+            &SOURCE,
             self.fetch_mirrors_timeout,
             source_security,
+            &tx_progress,
         )?;
 
         tx_progress

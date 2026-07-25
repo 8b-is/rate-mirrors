@@ -1,3 +1,43 @@
+# 0.30.0 (2026-07-25)
+
+Maintained as the 8b-is fork of rate-mirrors.
+
+Fixes for regressions that made the previous release unusable:
+
+- fixed every target failing with `failed to read mirror source` out of the box:
+  default mirror sources pointed at `/etc/rate-mirrors/sources/...`, which nothing
+  ships or creates. Sources now resolve through a chain (explicit flag, then local
+  files, then the distro's published list) and a missing local file is no longer
+  fatal
+- fixed `arch` and `manjaro` failing to parse live upstream JSON: `deny_unknown_fields`
+  rejected the payload whenever upstream carried a field the struct did not model
+  (`cutoff`, `last_check`, `num_checks`, ...)
+- `--allow-remote-sources` is now a deprecated no-op, kept so existing wrappers keep
+  parsing; use `--no-remote-sources` for the local-only behaviour
+
+CachyOS:
+
+- fixed `code=XX` country codes in the CachyOS mirrorlist being discarded, which made
+  `--exclude-countries` a no-op and left geo ranking with nothing to rank
+- the packaged `/etc/pacman.d/cachyos-mirrorlist` is used as a mirror source when it is
+  still the file CachyOS shipped, so ranking needs no network round trip to GitHub.
+  A rewritten list (the wrapper writes our own output there) is detected and skipped
+  rather than re-ranked into an ever-shrinking pool
+
+Mirror verification, on by default:
+
+- ranked mirrors are cross-checked against each other before output: the repository
+  database each one serves is fingerprinted (its detached `.sig` where the repo
+  publishes one, otherwise the database size), and a mirror serving something no
+  other mirror corroborates is dropped
+- mirror sync age is reported, and enforced with `--max-mirror-age=HOURS`
+- mirror hostnames are checked for DNSSEC-signed zones via an out-of-band DoH
+  resolver; signed mirrors are preferred over unsigned ones of comparable speed.
+  `--require-dnssec` hard-filters, `--no-dnssec-check` disables the lookup
+- `--no-verify-mirrors` skips the whole pass
+- verification never returns an empty mirrorlist: if every mirror fails, the ranking
+  is returned unverified with a warning
+
 # 0.29.0 (2026-05-17)
 
 - added URL-or-file mirror source options for mirror list fetching

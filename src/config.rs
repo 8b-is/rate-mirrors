@@ -18,10 +18,8 @@ use crate::target_configs::stdin::StdinTarget;
 use ambassador::{delegatable_trait, Delegate};
 use clap::{Parser, Subcommand};
 use openssl::sha::sha256;
-use serde::de::DeserializeOwned;
 use std::collections::HashSet;
 use std::fmt;
-use std::fs;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -56,10 +54,13 @@ pub enum AppError {
     RequestError(String),
     #[error("HTTP {status} from {url}")]
     HttpError { status: u16, url: String },
-    #[error(
-        "remote mirror source is blocked; pass --allow-remote-sources to permit fetching from {0}"
-    )]
+    #[error("--no-remote-sources is set, so {0} cannot be fetched")]
     RemoteSourcesDisabled(String),
+    #[error(
+        "--no-remote-sources is set and no local mirror source was usable (tried: {tried}); \
+         install one of those files, or drop --no-remote-sources to fall back to {remote}"
+    )]
+    NoLocalMirrorSource { remote: String, tried: String },
     #[error("invalid --mirror-source-sha256 value: expected 64 hex chars")]
     InvalidSourceHash,
     #[error(
@@ -330,13 +331,61 @@ pub struct Config {
     #[arg(env = "RATE_MIRRORS_DISABLE_UNTESTED_FALLBACK", long)]
     pub disable_untested_fallback: bool,
 
-    /// Allow fetching mirror-source inputs from remote URLs
-    #[arg(env = "RATE_MIRRORS_ALLOW_REMOTE_SOURCES", long)]
+    /// Never fetch mirror lists over the network: use only local files, and
+    ///   fail if none is usable. Mirror lists are otherwise read from local
+    ///   files when present and fetched from the distro upstream if not.
+    #[arg(env = "RATE_MIRRORS_NO_REMOTE_SOURCES", long, verbatim_doc_comment)]
+    pub no_remote_sources: bool,
+
+    /// Deprecated no-op: fetching a mirror list upstream is the default
+    /// fallback. Kept so existing wrappers and scripts keep parsing.
+    #[arg(env = "RATE_MIRRORS_ALLOW_REMOTE_SOURCES", long, hide = true)]
     pub allow_remote_sources: bool,
 
     /// Expected SHA-256 hex digest for the selected mirror source input
     #[arg(env = "RATE_MIRRORS_MIRROR_SOURCE_SHA256", long, value_name = "HEX64")]
     pub mirror_source_sha256: Option<String>,
+
+    /// Skip cross-checking ranked mirrors against each other. By default the
+    ///   repository database each mirror serves is fingerprinted, and a mirror
+    ///   serving one no other mirror has is dropped from the output.
+    #[arg(env = "RATE_MIRRORS_NO_VERIFY_MIRRORS", long, verbatim_doc_comment)]
+    pub no_verify_mirrors: bool,
+
+    /// Drop mirrors whose repository database was last synced more than this
+    ///   many hours ago. Unset means staleness is reported but not enforced.
+    #[arg(
+        env = "RATE_MIRRORS_MAX_MIRROR_AGE",
+        long,
+        value_name = "HOURS",
+        verbatim_doc_comment
+    )]
+    pub max_mirror_age: Option<f64>,
+
+    /// Per-mirror timeout for verification requests, in milliseconds
+    #[arg(env = "RATE_MIRRORS_VERIFY_TIMEOUT", long, default_value = "10000")]
+    pub verify_timeout: u64,
+
+    /// Skip the DNSSEC lookup. By default each mirror's hostname is checked
+    ///   against a validating resolver over HTTPS, and mirrors in signed zones
+    ///   are preferred over unsigned ones of comparable speed.
+    #[arg(env = "RATE_MIRRORS_NO_DNSSEC_CHECK", long, verbatim_doc_comment)]
+    pub no_dnssec_check: bool,
+
+    /// Drop mirrors whose hostname is not in a DNSSEC-signed zone. Most distro
+    ///   mirrors are still unsigned, so this discards much of the pool.
+    #[arg(env = "RATE_MIRRORS_REQUIRE_DNSSEC", long, verbatim_doc_comment)]
+    pub require_dnssec: bool,
+
+    /// DNS-over-HTTPS endpoint used for the DNSSEC lookup. Queried out of band
+    ///   so a subverted local resolver cannot vouch for itself.
+    #[arg(
+        env = "RATE_MIRRORS_DOH_RESOLVER",
+        long,
+        default_value = "https://cloudflare-dns.com/dns-query",
+        verbatim_doc_comment
+    )]
+    pub doh_resolver: String,
 
     /// Pre-parsed set of excluded country codes (lowercase)
     #[arg(skip)]
@@ -390,7 +439,7 @@ impl Config {
         }
 
         Ok(SourceSecurityConfig {
-            allow_remote_sources: self.allow_remote_sources,
+            allow_remote_sources: !self.no_remote_sources,
             mirror_source_sha256,
         })
     }
@@ -442,7 +491,7 @@ pub fn fetch_text(url: &str, timeout_ms: u64) -> Result<String, AppError> {
     result
 }
 
-fn verify_source_integrity(
+pub(crate) fn verify_source_integrity(
     path_or_url: &str,
     source_content: &str,
     expected_sha256: Option<&str>,
@@ -467,49 +516,11 @@ fn sha256_hex(content: &[u8]) -> String {
         .collect()
 }
 
-pub fn fetch_text_or_file_with_security(
-    path_or_url: &str,
-    timeout_ms: u64,
-    source_security: &SourceSecurityConfig,
-) -> Result<String, AppError> {
-    let content = if Url::parse(path_or_url).is_ok() {
-        if !source_security.allow_remote_sources {
-            return Err(AppError::RemoteSourcesDisabled(path_or_url.to_string()));
-        }
-        fetch_text(path_or_url, timeout_ms)?
-    } else {
-        fs::read_to_string(path_or_url)
-            .map_err(|e| AppError::RequestError(format!("failed to read mirror source: {}", e)))?
-    };
-
-    verify_source_integrity(
-        path_or_url,
-        &content,
-        source_security.mirror_source_sha256.as_deref(),
-    )?;
-    Ok(content)
-}
-
-pub fn fetch_json_or_file_with_security<T: DeserializeOwned>(
-    path_or_url: &str,
-    timeout_ms: u64,
-    source_security: &SourceSecurityConfig,
-) -> Result<T, AppError> {
-    let content = fetch_text_or_file_with_security(path_or_url, timeout_ms, source_security)?;
-    serde_json::from_str(&content).map_err(|e| {
-        AppError::RequestError(format!(
-            "failed to decode JSON from mirror source {}: {}",
-            path_or_url, e
-        ))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::targets::archlinux::{selected_mirror_source, ARCH_TIER_1_MIRROR_SOURCE};
+    use crate::targets::archlinux::{selected_source_chain, ARCH_SOURCE, ARCH_TIER_1_SOURCE};
     use clap::error::ErrorKind;
-    use std::io::Write;
     use std::sync::Mutex;
 
     static MIRROR_SOURCE_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -556,8 +567,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            selected_mirror_source(arch_target(&config)),
-            ARCH_TIER_1_MIRROR_SOURCE
+            selected_source_chain(arch_target(&config)).remote,
+            ARCH_TIER_1_SOURCE.remote
         );
     }
 
@@ -574,7 +585,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(arch_target(&config).mirror_source, "local-status.json");
+        assert_eq!(
+            arch_target(&config).mirror_source.as_deref(),
+            Some("local-status.json")
+        );
     }
 
     #[test]
@@ -606,16 +620,54 @@ mod tests {
     }
 
     #[test]
-    fn allow_remote_sources_defaults_to_false() {
+    fn arch_defaults_to_the_full_status_chain_with_no_explicit_source() {
+        let config = parse_arch_with_mirror_source_env(None, &["rate-mirrors", "arch"]).unwrap();
+
+        assert_eq!(arch_target(&config).mirror_source, None);
+        assert_eq!(
+            selected_source_chain(arch_target(&config)).remote,
+            ARCH_SOURCE.remote
+        );
+    }
+
+    /// Distro installers call this tool with no flags at all. Remote fallback
+    /// has to be on by default or mirror setup fails on a machine that has no
+    /// pre-seeded local list.
+    #[test]
+    fn remote_fallback_is_allowed_by_default() {
         let config = Config::try_parse_from(["rate-mirrors", "stdin"]).unwrap();
-        assert!(!config.allow_remote_sources);
+        assert!(
+            config
+                .source_security_config()
+                .unwrap()
+                .allow_remote_sources
+        );
     }
 
     #[test]
-    fn allow_remote_sources_can_be_enabled() {
+    fn no_remote_sources_disables_the_fallback() {
+        let config =
+            Config::try_parse_from(["rate-mirrors", "--no-remote-sources", "stdin"]).unwrap();
+        assert!(
+            !config
+                .source_security_config()
+                .unwrap()
+                .allow_remote_sources
+        );
+    }
+
+    /// Wrappers and scripts in the wild still pass the old flag; it must keep
+    /// parsing, and must not turn the fallback off.
+    #[test]
+    fn deprecated_allow_remote_sources_flag_still_parses() {
         let config =
             Config::try_parse_from(["rate-mirrors", "--allow-remote-sources", "stdin"]).unwrap();
-        assert!(config.allow_remote_sources);
+        assert!(
+            config
+                .source_security_config()
+                .unwrap()
+                .allow_remote_sources
+        );
     }
 
     #[test]
@@ -630,37 +682,14 @@ mod tests {
     }
 
     #[test]
-    fn remote_source_is_blocked_without_opt_in() {
-        let err = fetch_text_or_file_with_security(
-            "https://example.com/source.txt",
-            1000,
-            &SourceSecurityConfig {
-                allow_remote_sources: false,
-                mirror_source_sha256: None,
-            },
-        )
-        .unwrap_err();
-        assert!(matches!(err, AppError::RemoteSourcesDisabled(_)));
-    }
+    fn source_hash_matching_passes_and_mismatching_fails() {
+        let expected = "46fae342146d1a05b2d6fa7d29f1390ccf1d8c7eefba5e5919516d0316d70f18";
 
-    #[test]
-    fn local_source_hash_is_verified() {
-        let temp_path = std::env::temp_dir().join("rate-mirrors-source-hash-test.txt");
-        let mut file = std::fs::File::create(&temp_path).unwrap();
-        file.write_all(b"mirror-source").unwrap();
-        drop(file);
-
-        let ok = fetch_text_or_file_with_security(
-            temp_path.to_str().unwrap(),
-            1000,
-            &SourceSecurityConfig {
-                allow_remote_sources: false,
-                mirror_source_sha256: Some(
-                    "46fae342146d1a05b2d6fa7d29f1390ccf1d8c7eefba5e5919516d0316d70f18".to_string(),
-                ),
-            },
-        );
-        assert!(ok.is_ok());
-        let _ = std::fs::remove_file(temp_path);
+        assert!(verify_source_integrity("src", "mirror-source", Some(expected)).is_ok());
+        assert!(matches!(
+            verify_source_integrity("src", "tampered", Some(expected)),
+            Err(AppError::SourceIntegrityMismatch { .. })
+        ));
+        assert!(verify_source_integrity("src", "anything", None).is_ok());
     }
 }

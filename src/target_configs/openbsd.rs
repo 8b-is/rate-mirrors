@@ -21,14 +21,10 @@ pub struct OpenBSDTarget {
     )]
     pub fetch_mirrors_timeout: u64,
 
-    /// Either url or path to OpenBSD ftplist file
-    #[arg(
-        env = "RATE_MIRRORS_MIRROR_SOURCE",
-        long,
-        default_value = "/etc/rate-mirrors/sources/openbsd-ftplist.txt",
-        verbatim_doc_comment
-    )]
-    pub mirror_source: String,
+    /// Url or path to a mirror source, overriding the default lookup:
+    ///   local files first, then the list published upstream
+    #[arg(env = "RATE_MIRRORS_MIRROR_SOURCE", long, verbatim_doc_comment)]
+    pub mirror_source: Option<String>,
 
     /// comment prefix to use when outputting
     #[arg(env = "RATE_MIRRORS_COMMENT_PREFIX", long, default_value = "# ")]

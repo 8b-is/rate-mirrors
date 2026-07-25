@@ -4,12 +4,15 @@ extern crate lazy_static;
 mod config;
 mod countries;
 mod mirror;
+mod sources;
 mod speed_test;
 mod target_configs;
 mod targets;
+mod verify;
 
 use crate::config::{AppError, Config, FetchMirrors};
 use crate::speed_test::{test_speed_by_countries, SpeedTestResult, SpeedTestResults};
+use crate::verify::VerifyConfig;
 use chrono::prelude::*;
 use config::LogFormatter;
 use itertools::Itertools;
@@ -23,6 +26,7 @@ use std::io::prelude::*;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 struct OutputSink<'a, T: LogFormatter> {
     filename: Option<String>,
@@ -107,6 +111,45 @@ impl<'a, T: LogFormatter> OutputSink<'a, T> {
     }
 }
 
+/// Cross-check the ranked mirrors and drop any the rest of the pool does not
+/// corroborate. Reported through the same comment stream as the ranking, so the
+/// reason a mirror vanished is visible in an installer log.
+fn verify_ranked_mirrors<T: LogFormatter>(
+    results: Vec<SpeedTestResult>,
+    settings: &Option<VerifyConfig>,
+    output: &mut OutputSink<'_, T>,
+) -> Result<Vec<SpeedTestResult>, AppError> {
+    let Some(settings) = settings else {
+        return Ok(results);
+    };
+
+    output.display_comment("==== VERIFYING MIRRORS ====")?;
+
+    let (tx_progress, rx_progress) = mpsc::channel::<String>();
+    let report = verify::verify_mirrors(results, settings, &tx_progress)?;
+    drop(tx_progress);
+    for progress in rx_progress.into_iter() {
+        output.display_comment(progress)?;
+    }
+
+    if let Some((agreeing, comparable)) = report.consensus {
+        output.display_comment(format!(
+            "    CONSENSUS: {}/{} mirrors serve the same database",
+            agreeing, comparable
+        ))?;
+    }
+
+    for (result, reason) in report.rejected.iter() {
+        output.display_comment(format!("    DROPPED {} - {}", result.item.url, reason))?;
+    }
+
+    if let Some(reason) = report.abandoned.as_ref() {
+        output.display_comment(format!("    WARNING: {}", reason))?;
+    }
+
+    Ok(report.accepted)
+}
+
 fn main() -> Result<(), AppError> {
     match run() {
         Err(AppError::StdoutBrokenPipe) => Ok(()),
@@ -122,6 +165,16 @@ fn run() -> Result<(), AppError> {
     let max_mirrors_to_output = config.max_mirrors_to_output.clone();
     let disable_untested_fallback = config.disable_untested_fallback;
     let source_security = config.source_security_config()?;
+    let verify_settings = (!config.no_verify_mirrors).then(|| VerifyConfig {
+        concurrency: config.concurrency,
+        timeout: Duration::from_millis(config.verify_timeout),
+        max_age: config
+            .max_mirror_age
+            .map(|hours| Duration::from_secs_f64(hours * 3600.0)),
+        doh_resolver: (!config.no_dnssec_check).then(|| config.doh_resolver.clone()),
+        prefer_dnssec: !config.no_dnssec_check,
+        require_dnssec: config.require_dnssec,
+    });
 
     let ref formatter = Arc::clone(&config).target;
     let mut output = OutputSink::new(
@@ -240,6 +293,8 @@ fn run() -> Result<(), AppError> {
             output.display_mirror(&mirror)?;
         }
     } else {
+        let results = verify_ranked_mirrors(results, &verify_settings, &mut output)?;
+
         output.display_comment("==== RESULTS (top re-tested) ====")?;
 
         for (index, result) in results.iter().enumerate() {

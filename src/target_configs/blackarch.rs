@@ -10,14 +10,10 @@ pub struct BlackArchTarget {
     )]
     pub fetch_mirrors_timeout: u64,
 
-    /// Either url or path to BlackArch mirror list file
-    #[arg(
-        env = "RATE_MIRRORS_MIRROR_SOURCE",
-        long,
-        default_value = "/etc/rate-mirrors/sources/blackarch-mirrorlist.txt",
-        verbatim_doc_comment
-    )]
-    pub mirror_source: String,
+    /// Url or path to a mirror source, overriding the default lookup:
+    ///   local files first, then the list published upstream
+    #[arg(env = "RATE_MIRRORS_MIRROR_SOURCE", long, verbatim_doc_comment)]
+    pub mirror_source: Option<String>,
 
     /// Path to be joined to a mirror url and used for speed testing
     ///   the file should be big enough to allow for testing high

@@ -32,14 +32,10 @@ pub struct ArcoLinuxTarget {
     )]
     pub fetch_mirrors_timeout: u64,
 
-    /// Either url or path to ArcoLinux mirror list file
-    #[arg(
-        env = "RATE_MIRRORS_MIRROR_LIST_FILE",
-        long,
-        default_value = "/etc/rate-mirrors/sources/arcolinux-mirrorlist.txt",
-        verbatim_doc_comment
-    )]
-    pub mirror_list_file: String,
+    /// Url or path to a mirror list, overriding the default lookup:
+    ///   local files first, then the list published upstream
+    #[arg(env = "RATE_MIRRORS_MIRROR_LIST_FILE", long, verbatim_doc_comment)]
+    pub mirror_list_file: Option<String>,
 
     /// comment prefix to use when outputting
     #[arg(env = "RATE_MIRRORS_COMMENT_PREFIX", long, default_value = "# ")]

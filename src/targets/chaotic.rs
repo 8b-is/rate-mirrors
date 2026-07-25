@@ -1,6 +1,7 @@
-use crate::config::{fetch_text_or_file_with_security, AppError, FetchMirrors, LogFormatter};
+use crate::config::{AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
+use crate::sources::{fetch_source_text, LocalSource, MirrorSourceChain};
 use crate::target_configs::chaotic::ChaoticTarget;
 use std::fmt::Display;
 use std::sync::mpsc;
@@ -15,6 +16,15 @@ fn parse_country_code(line: &str) -> Option<&str> {
         None
     }
 }
+
+static LOCAL_SOURCES: &[LocalSource] = &[LocalSource::curated(
+    "/etc/rate-mirrors/sources/chaotic-aur-mirrorlist.txt",
+)];
+
+static SOURCE: MirrorSourceChain = MirrorSourceChain {
+    local: LOCAL_SOURCES,
+    remote: "https://gitlab.com/chaotic-aur/pkgbuilds/-/raw/main/chaotic-mirrorlist/mirrorlist",
+};
 
 impl LogFormatter for ChaoticTarget {
     fn format_comment(&self, message: impl Display) -> String {
@@ -38,10 +48,12 @@ impl FetchMirrors for ChaoticTarget {
         tx_progress: mpsc::Sender<String>,
         source_security: &crate::config::SourceSecurityConfig,
     ) -> Result<Vec<Mirror>, AppError> {
-        let output = fetch_text_or_file_with_security(
-            &self.mirror_list_file,
+        let output = fetch_source_text(
+            self.mirror_list_file.as_deref(),
+            &SOURCE,
             self.fetch_mirrors_timeout,
             source_security,
+            &tx_progress,
         )?;
 
         let mut current_country = None;

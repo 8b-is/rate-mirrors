@@ -1,6 +1,7 @@
-use crate::config::{fetch_json_or_file_with_security, AppError, FetchMirrors, LogFormatter};
+use crate::config::{AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
+use crate::sources::{fetch_source_json, LocalSource, MirrorSourceChain};
 use crate::target_configs::archlinux::{ArchMirrorsSortingStrategy, ArchTarget};
 use rand::prelude::SliceRandom;
 use rand::rng;
@@ -9,12 +10,25 @@ use std::fmt::Display;
 use std::sync::mpsc;
 use url::Url;
 
-pub(crate) const ARCH_TIER_1_MIRROR_SOURCE: &str =
-    // Local vetted tier-1 snapshot path; remote fetching requires --allow-remote-sources.
-    "/etc/rate-mirrors/sources/archlinux-tier1-status.json";
+static ALL_LOCAL_SOURCES: &[LocalSource] = &[LocalSource::curated(
+    "/etc/rate-mirrors/sources/archlinux-status.json",
+)];
+
+pub(crate) static ARCH_SOURCE: MirrorSourceChain = MirrorSourceChain {
+    local: ALL_LOCAL_SOURCES,
+    remote: "https://archlinux.org/mirrors/status/json/",
+};
+
+static TIER_1_LOCAL_SOURCES: &[LocalSource] = &[LocalSource::curated(
+    "/etc/rate-mirrors/sources/archlinux-tier1-status.json",
+)];
+
+pub(crate) static ARCH_TIER_1_SOURCE: MirrorSourceChain = MirrorSourceChain {
+    local: TIER_1_LOCAL_SOURCES,
+    remote: "https://archlinux.org/mirrors/status/tier/1/json/",
+};
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(deny_unknown_fields)]
 pub struct ArchMirror {
     #[allow(dead_code)]
     protocol: String,
@@ -27,7 +41,6 @@ pub struct ArchMirror {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
 struct ArchMirrorsData {
     urls: Vec<ArchMirror>,
 }
@@ -42,11 +55,13 @@ impl LogFormatter for ArchTarget {
     }
 }
 
-pub(crate) fn selected_mirror_source(target: &ArchTarget) -> &str {
+/// `--fetch-first-tier-only` swaps in the tier-1 chain. It conflicts with
+/// `--mirror-source` at the clap level, so the two never both apply.
+pub(crate) fn selected_source_chain(target: &ArchTarget) -> &'static MirrorSourceChain {
     if target.fetch_first_tier_only {
-        ARCH_TIER_1_MIRROR_SOURCE
+        &ARCH_TIER_1_SOURCE
     } else {
-        &target.mirror_source
+        &ARCH_SOURCE
     }
 }
 
@@ -56,10 +71,12 @@ impl FetchMirrors for ArchTarget {
         tx_progress: mpsc::Sender<String>,
         source_security: &crate::config::SourceSecurityConfig,
     ) -> Result<Vec<Mirror>, AppError> {
-        let mirrors_data: ArchMirrorsData = fetch_json_or_file_with_security(
-            selected_mirror_source(self),
+        let mirrors_data: ArchMirrorsData = fetch_source_json(
+            self.mirror_source.as_deref(),
+            selected_source_chain(self),
             self.fetch_mirrors_timeout,
             source_security,
+            &tx_progress,
         )?;
 
         tx_progress

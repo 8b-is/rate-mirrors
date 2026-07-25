@@ -1,9 +1,12 @@
 [package]
 name = "rate_mirrors"
-version = "0.29.0"
-authors = ["Nikita Almakov <nikita.almakov@gmail.com>"]
+version = "0.30.0"
+authors = [
+    "Nikita Almakov <nikita.almakov@gmail.com>",  # original author of rate-mirrors
+    "8b-is <ca@8b.is>",
+]
 edition = "2021"
-description = "Everyday-use client-side map-aware mirror ranking tool (Arch Linux; Manjaro; custom ones)"
+description = "Client-side map-aware mirror ranking tool with pinnable mirror sources and mirror cross-verification (Arch Linux; CachyOS; Manjaro; custom ones)"
 rust-version = "1.85"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
