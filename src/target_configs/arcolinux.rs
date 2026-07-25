@@ -36,7 +36,7 @@ pub struct ArcoLinuxTarget {
     #[arg(
         env = "RATE_MIRRORS_MIRROR_LIST_FILE",
         long,
-        default_value = "https://raw.githubusercontent.com/arcolinux/arcolinux-mirrorlist/refs/heads/master/etc/pacman.d/arcolinux-mirrorlist",
+        default_value = "/etc/rate-mirrors/sources/arcolinux-mirrorlist.txt",
         verbatim_doc_comment
     )]
     pub mirror_list_file: String,

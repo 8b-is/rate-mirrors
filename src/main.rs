@@ -9,7 +9,7 @@ mod target_configs;
 mod targets;
 
 use crate::config::{AppError, Config, FetchMirrors};
-use crate::speed_test::{SpeedTestResult, SpeedTestResults, test_speed_by_countries};
+use crate::speed_test::{test_speed_by_countries, SpeedTestResult, SpeedTestResults};
 use chrono::prelude::*;
 use config::LogFormatter;
 use itertools::Itertools;
@@ -20,8 +20,8 @@ use std::fmt::Display;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
-use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 
 struct OutputSink<'a, T: LogFormatter> {
@@ -121,6 +121,7 @@ fn run() -> Result<(), AppError> {
     }
     let max_mirrors_to_output = config.max_mirrors_to_output.clone();
     let disable_untested_fallback = config.disable_untested_fallback;
+    let source_security = config.source_security_config()?;
 
     let ref formatter = Arc::clone(&config).target;
     let mut output = OutputSink::new(
@@ -139,7 +140,9 @@ fn run() -> Result<(), AppError> {
     let (tx_mirrors, rx_mirrors) = mpsc::channel::<Mirror>();
 
     let thread_handle = thread::spawn(move || -> Result<(), AppError> {
-        let mut mirrors = config.target.fetch_mirrors(tx_progress.clone())?;
+        let mut mirrors = config
+            .target
+            .fetch_mirrors(tx_progress.clone(), &source_security)?;
 
         // Centralized protocol filtering
         let before_protocol = mirrors.len();

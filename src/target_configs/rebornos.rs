@@ -14,7 +14,7 @@ pub struct RebornOSTarget {
     #[arg(
         env = "RATE_MIRRORS_MIRROR_LIST_FILE",
         long,
-        default_value = "https://raw.githubusercontent.com/RebornOS-Team/rebornos-mirrorlist/main/reborn-mirrorlist",
+        default_value = "/etc/rate-mirrors/sources/rebornos-mirrorlist.txt",
         verbatim_doc_comment
     )]
     pub mirror_list_file: String,

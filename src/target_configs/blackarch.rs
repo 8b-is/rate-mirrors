@@ -14,7 +14,7 @@ pub struct BlackArchTarget {
     #[arg(
         env = "RATE_MIRRORS_MIRROR_SOURCE",
         long,
-        default_value = "https://raw.githubusercontent.com/BlackArch/blackarch/master/mirror/mirror.lst",
+        default_value = "/etc/rate-mirrors/sources/blackarch-mirrorlist.txt",
         verbatim_doc_comment
     )]
     pub mirror_source: String,

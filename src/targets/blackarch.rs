@@ -1,4 +1,4 @@
-use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_text_or_file};
+use crate::config::{fetch_text_or_file_with_security, AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
 use crate::target_configs::blackarch::BlackArchTarget;
@@ -23,12 +23,20 @@ impl LogFormatter for BlackArchTarget {
 }
 
 impl FetchMirrors for BlackArchTarget {
-    fn fetch_mirrors(&self, _tx_progress: mpsc::Sender<String>) -> Result<Vec<Mirror>, AppError> {
+    fn fetch_mirrors(
+        &self,
+        _tx_progress: mpsc::Sender<String>,
+        source_security: &crate::config::SourceSecurityConfig,
+    ) -> Result<Vec<Mirror>, AppError> {
         // RU|http://mirror.surf/blackarch/$repo/os/$arch|mirror.surf
         //
         // http://mirror.surf/blackarch/blackarch/os/x86_64/blackarch.files
 
-        let output = fetch_text_or_file(&self.mirror_source, self.fetch_mirrors_timeout)?;
+        let output = fetch_text_or_file_with_security(
+            &self.mirror_source,
+            self.fetch_mirrors_timeout,
+            source_security,
+        )?;
 
         let mirrors: Vec<Mirror> = output
             .lines()

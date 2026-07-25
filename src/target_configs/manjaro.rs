@@ -44,7 +44,7 @@ pub struct ManjaroTarget {
     #[arg(
         env = "RATE_MIRRORS_MIRROR_SOURCE",
         long,
-        default_value = "https://repo.manjaro.org/status.json",
+        default_value = "/etc/rate-mirrors/sources/manjaro-status.json",
         verbatim_doc_comment
     )]
     pub mirror_source: String,
