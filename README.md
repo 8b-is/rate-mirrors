@@ -4,6 +4,7 @@
 [![License: CC BY-NC-SA 3.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%203.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/3.0/)
 
 A fast mirror ranking tool that finds the best mirrors for your Linux distribution. It uses submarine cable and internet exchange data to intelligently hop between countries and discover fast mirrors in ~30 seconds.
+Current version: 0.29.0
 
 ## Table of Contents
 
@@ -112,6 +113,8 @@ rate-mirrors [OPTIONS] <SUBCOMMAND> [SUBCOMMAND-OPTIONS]
 - Run `rate-mirrors --help` to see base options
 - Run `rate-mirrors <subcommand> --help` to see subcommand-specific options
 - The tool doesn't need root; use `--allow-root` if you must run as root
+- Mirror sources are **local-first** by default (`/etc/rate-mirrors/sources/...`); remote mirror-source URLs are blocked unless `--allow-remote-sources` is set
+- Use `--mirror-source-sha256=<hex>` to enforce source integrity checks (fail-closed on mismatch)
 
 ## Common Options
 
@@ -127,6 +130,15 @@ rate-mirrors [OPTIONS] <SUBCOMMAND> [SUBCOMMAND-OPTIONS]
 | `--disable-comments` | Disable printing comments | false |
 | `--disable-untested-fallback` | Exit with error when all speed tests fail instead of outputting untested mirrors | false |
 | `--allow-root` | Allow running as root | false |
+| `--allow-remote-sources` | Allow mirror-source inputs from remote URLs | false |
+| `--mirror-source-sha256=HEX64` | Verify mirror-source payload SHA-256 before parsing | - |
+
+## Security Model (Mirror Source Hardening)
+
+- Default mirror-source inputs now point to local vetted files under `/etc/rate-mirrors/sources/`.
+- Remote mirror-source ingestion is explicit opt-in only (`--allow-remote-sources`).
+- Mirror-source payload integrity can be pinned with `--mirror-source-sha256`.
+- JSON sources are parsed fail-closed with strict schema validation.
 
 ### Subcommand Options (arch example)
 

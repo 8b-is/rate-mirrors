@@ -24,7 +24,7 @@ impl LogFormatter for StdinTarget {
 }
 
 impl FetchMirrors for StdinTarget {
-    fn fetch_mirrors(&self, _tx_progress: mpsc::Sender<String>) -> Result<Vec<Mirror>, AppError> {
+    fn fetch_mirrors(&self, _tx_progress: mpsc::Sender<String>, _source_security: &crate::config::SourceSecurityConfig) -> Result<Vec<Mirror>, AppError> {
         let mirrors: Vec<_> = io::stdin()
             .lock()
             .lines()

@@ -35,8 +35,11 @@ set_version() {
 # Update version in README.md
 update_readme_version() {
     local version="$1"
-    # Update badge or version reference in README if needed
-    # This is a placeholder for when version appears in README
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s/^Current version: .*/Current version: ${version}/" "$README_MD"
+    else
+        sed -i "s/^Current version: .*/Current version: ${version}/" "$README_MD"
+    fi
     echo -e "${GREEN}✓${NC} README version check complete"
 }
 
@@ -50,6 +53,7 @@ Commands:
   build              Build in debug mode
   release            Build optimized release binary
   run                Run the debug binary (pass args: -- <args>)
+  run-release        Run the release binary (builds it first if needed)
   test               Run tests
   lint               Run clippy linter
   fmt                Format code with rustfmt
@@ -103,6 +107,13 @@ cmd_run() {
     echo -e "${BLUE}→${NC} Running binary..."
     cd "$REPO_ROOT"
     cargo run -- "$@"
+}
+
+# Run the release binary
+cmd_run_release() {
+    echo -e "${BLUE}→${NC} Running release binary..."
+    cd "$REPO_ROOT"
+    cargo run --release --locked -- "$@"
 }
 
 # Run tests
@@ -193,6 +204,7 @@ main() {
         build)      cmd_build ;;
         release)    cmd_release ;;
         run)        cmd_run "$@" ;;
+        run-release) cmd_run_release "$@" ;;
         test)       cmd_test ;;
         lint)       cmd_lint ;;
         fmt)        cmd_fmt ;;

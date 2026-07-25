@@ -1,4 +1,4 @@
-use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_text_or_file};
+use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_text_or_file_with_security};
 use crate::countries::Country;
 use crate::mirror::Mirror;
 use crate::target_configs::openbsd::OpenBSDTarget;
@@ -17,8 +17,8 @@ impl LogFormatter for OpenBSDTarget {
 }
 
 impl FetchMirrors for OpenBSDTarget {
-    fn fetch_mirrors(&self, _tx_progress: mpsc::Sender<String>) -> Result<Vec<Mirror>, AppError> {
-        let output = fetch_text_or_file(&self.mirror_source, self.fetch_mirrors_timeout)?;
+    fn fetch_mirrors(&self, _tx_progress: mpsc::Sender<String>, source_security: &crate::config::SourceSecurityConfig) -> Result<Vec<Mirror>, AppError> {
+        let output = fetch_text_or_file_with_security(&self.mirror_source, self.fetch_mirrors_timeout, source_security)?;
 
         let urls = output
             .lines()

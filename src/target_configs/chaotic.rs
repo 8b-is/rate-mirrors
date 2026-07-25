@@ -14,7 +14,7 @@ pub struct ChaoticTarget {
     #[arg(
         env = "RATE_MIRRORS_MIRROR_LIST_FILE",
         long,
-        default_value = "https://gitlab.com/chaotic-aur/pkgbuilds/-/raw/main/chaotic-mirrorlist/mirrorlist",
+        default_value = "/etc/rate-mirrors/sources/chaotic-aur-mirrorlist.txt",
         verbatim_doc_comment
     )]
     pub mirror_list_file: String,

@@ -25,7 +25,7 @@ pub struct OpenBSDTarget {
     #[arg(
         env = "RATE_MIRRORS_MIRROR_SOURCE",
         long,
-        default_value = "https://ftp.openbsd.org/pub/OpenBSD/ftplist",
+        default_value = "/etc/rate-mirrors/sources/openbsd-ftplist.txt",
         verbatim_doc_comment
     )]
     pub mirror_source: String,

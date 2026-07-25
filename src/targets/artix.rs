@@ -1,4 +1,4 @@
-use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_text_or_file};
+use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_text_or_file_with_security};
 use crate::countries::Country;
 use crate::mirror::Mirror;
 use crate::target_configs::artix::ArtixTarget;
@@ -17,8 +17,8 @@ impl LogFormatter for ArtixTarget {
 }
 
 impl FetchMirrors for ArtixTarget {
-    fn fetch_mirrors(&self, _tx_progress: mpsc::Sender<String>) -> Result<Vec<Mirror>, AppError> {
-        let output = fetch_text_or_file(&self.mirror_list_file, self.fetch_mirrors_timeout)?;
+    fn fetch_mirrors(&self, _tx_progress: mpsc::Sender<String>, source_security: &crate::config::SourceSecurityConfig) -> Result<Vec<Mirror>, AppError> {
+        let output = fetch_text_or_file_with_security(&self.mirror_list_file, self.fetch_mirrors_timeout, source_security)?;
 
         let mut current_country = None;
         let mut mirrors = Vec::new();

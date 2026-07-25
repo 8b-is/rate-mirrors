@@ -25,7 +25,7 @@ pub struct ArtixTarget {
     #[arg(
         env = "RATE_MIRRORS_MIRROR_LIST_FILE",
         long,
-        default_value = "https://packages.artixlinux.org/mirrorlist/all/",
+        default_value = "/etc/rate-mirrors/sources/artix-mirrorlist.txt",
         verbatim_doc_comment
     )]
     pub mirror_list_file: String,

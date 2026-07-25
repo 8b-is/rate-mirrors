@@ -14,7 +14,7 @@ pub struct Arch4eduTarget {
     #[arg(
         env = "RATE_MIRRORS_MIRROR_LIST_FILE",
         long,
-        default_value = "https://raw.githubusercontent.com/arch4edu/mirrorlist/refs/heads/master/mirrorlist.arch4edu",
+        default_value = "/etc/rate-mirrors/sources/arch4edu-mirrorlist.txt",
         verbatim_doc_comment
     )]
     pub mirror_list_file: String,

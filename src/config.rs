@@ -17,6 +17,7 @@ use crate::target_configs::stdin::StdinTarget;
 // use crate::target_configs::ubuntu::UbuntuTarget;
 use ambassador::{Delegate, delegatable_trait};
 use clap::{Parser, Subcommand};
+use openssl::sha::sha256;
 use serde::de::DeserializeOwned;
 use std::collections::HashSet;
 use std::fmt;
@@ -55,6 +56,16 @@ pub enum AppError {
     RequestError(String),
     #[error("HTTP {status} from {url}")]
     HttpError { status: u16, url: String },
+    #[error("remote mirror source is blocked; pass --allow-remote-sources to permit fetching from {0}")]
+    RemoteSourcesDisabled(String),
+    #[error("invalid --mirror-source-sha256 value: expected 64 hex chars")]
+    InvalidSourceHash,
+    #[error("mirror source integrity check failed for {path_or_url}: expected {expected}, got {actual}")]
+    SourceIntegrityMismatch {
+        path_or_url: String,
+        expected: String,
+        actual: String,
+    },
     #[error("no mirrors after filtering")]
     NoMirrorsAfterFiltering,
     #[error("all speed tests failed")]
@@ -93,7 +104,17 @@ pub trait LogFormatter {
 
 #[delegatable_trait]
 pub trait FetchMirrors {
-    fn fetch_mirrors(&self, tx_progress: mpsc::Sender<String>) -> Result<Vec<Mirror>, AppError>;
+    fn fetch_mirrors(
+        &self,
+        tx_progress: mpsc::Sender<String>,
+        source_security: &SourceSecurityConfig,
+    ) -> Result<Vec<Mirror>, AppError>;
+}
+
+#[derive(Debug, Clone)]
+pub struct SourceSecurityConfig {
+    pub allow_remote_sources: bool,
+    pub mirror_source_sha256: Option<String>,
 }
 
 #[derive(Debug, Subcommand, Clone, Delegate)]
@@ -305,6 +326,18 @@ pub struct Config {
     #[arg(env = "RATE_MIRRORS_DISABLE_UNTESTED_FALLBACK", long)]
     pub disable_untested_fallback: bool,
 
+    /// Allow fetching mirror-source inputs from remote URLs
+    #[arg(env = "RATE_MIRRORS_ALLOW_REMOTE_SOURCES", long)]
+    pub allow_remote_sources: bool,
+
+    /// Expected SHA-256 hex digest for the selected mirror source input
+    #[arg(
+        env = "RATE_MIRRORS_MIRROR_SOURCE_SHA256",
+        long,
+        value_name = "HEX64"
+    )]
+    pub mirror_source_sha256: Option<String>,
+
     /// Pre-parsed set of excluded country codes (lowercase)
     #[arg(skip)]
     pub excluded_countries_set: HashSet<String>,
@@ -340,6 +373,26 @@ impl Config {
                 .map(|p| self.protocols.contains(&p))
                 .unwrap_or(false)
         }
+    }
+
+    pub fn source_security_config(&self) -> Result<SourceSecurityConfig, AppError> {
+        let mirror_source_sha256 = self
+            .mirror_source_sha256
+            .as_ref()
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty());
+
+        if let Some(ref hash) = mirror_source_sha256 {
+            let is_valid = hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit());
+            if !is_valid {
+                return Err(AppError::InvalidSourceHash);
+            }
+        }
+
+        Ok(SourceSecurityConfig {
+            allow_remote_sources: self.allow_remote_sources,
+            mirror_source_sha256,
+        })
     }
 }
 
@@ -420,12 +473,14 @@ pub fn fetch_text(url: &str, timeout_ms: u64) -> Result<String, AppError> {
 /// URLs are detected via `Url::parse`; everything else is treated as a filesystem path.
 /// Used by mirror-list and mirror-source options that can point at a URL or a file.
 pub fn fetch_text_or_file(path_or_url: &str, timeout_ms: u64) -> Result<String, AppError> {
-    if Url::parse(path_or_url).is_ok() {
-        fetch_text(path_or_url, timeout_ms)
-    } else {
-        fs::read_to_string(path_or_url)
-            .map_err(|e| AppError::RequestError(format!("failed to read mirror source: {}", e)))
-    }
+    fetch_text_or_file_with_security(
+        path_or_url,
+        timeout_ms,
+        &SourceSecurityConfig {
+            allow_remote_sources: true,
+            mirror_source_sha256: None,
+        },
+    )
 }
 
 /// Same as `fetch_text_or_file` but deserializes the result as JSON.
@@ -434,18 +489,72 @@ pub fn fetch_json_or_file<T: DeserializeOwned>(
     path_or_url: &str,
     timeout_ms: u64,
 ) -> Result<T, AppError> {
-    if Url::parse(path_or_url).is_ok() {
-        fetch_json(path_or_url, timeout_ms)
-    } else {
-        let content = fs::read_to_string(path_or_url)
-            .map_err(|e| AppError::RequestError(format!("failed to read mirror source: {}", e)))?;
-        serde_json::from_str(&content).map_err(|e| {
-            AppError::RequestError(format!(
-                "failed to decode JSON from mirror source {}: {}",
-                path_or_url, e
-            ))
-        })
+    fetch_json_or_file_with_security(
+        path_or_url,
+        timeout_ms,
+        &SourceSecurityConfig {
+            allow_remote_sources: true,
+            mirror_source_sha256: None,
+        },
+    )
+}
+
+fn verify_source_integrity(
+    path_or_url: &str,
+    source_content: &str,
+    expected_sha256: Option<&str>,
+) -> Result<(), AppError> {
+    if let Some(expected) = expected_sha256 {
+        let actual: String = sha256(source_content.as_bytes())
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        if actual != expected {
+            return Err(AppError::SourceIntegrityMismatch {
+                path_or_url: path_or_url.to_string(),
+                expected: expected.to_string(),
+                actual,
+            });
+        }
     }
+    Ok(())
+}
+
+pub fn fetch_text_or_file_with_security(
+    path_or_url: &str,
+    timeout_ms: u64,
+    source_security: &SourceSecurityConfig,
+) -> Result<String, AppError> {
+    let content = if Url::parse(path_or_url).is_ok() {
+        if !source_security.allow_remote_sources {
+            return Err(AppError::RemoteSourcesDisabled(path_or_url.to_string()));
+        }
+        fetch_text(path_or_url, timeout_ms)?
+    } else {
+        fs::read_to_string(path_or_url)
+            .map_err(|e| AppError::RequestError(format!("failed to read mirror source: {}", e)))?;
+    };
+
+    verify_source_integrity(
+        path_or_url,
+        &content,
+        source_security.mirror_source_sha256.as_deref(),
+    )?;
+    Ok(content)
+}
+
+pub fn fetch_json_or_file_with_security<T: DeserializeOwned>(
+    path_or_url: &str,
+    timeout_ms: u64,
+    source_security: &SourceSecurityConfig,
+) -> Result<T, AppError> {
+    let content = fetch_text_or_file_with_security(path_or_url, timeout_ms, source_security)?;
+    serde_json::from_str(&content).map_err(|e| {
+        AppError::RequestError(format!(
+            "failed to decode JSON from mirror source {}: {}",
+            path_or_url, e
+        ))
+    })
 }
 
 #[cfg(test)]

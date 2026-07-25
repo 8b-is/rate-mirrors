@@ -1,4 +1,4 @@
-use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_json_or_file};
+use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_json_or_file_with_security};
 use crate::countries::Country;
 use crate::mirror::Mirror;
 use crate::target_configs::archlinux::{ArchMirrorsSortingStrategy, ArchTarget};
@@ -10,9 +10,10 @@ use std::sync::mpsc;
 use url::Url;
 
 pub(crate) const ARCH_TIER_1_MIRROR_SOURCE: &str =
-    "https://archlinux.org/mirrors/status/tier/1/json/";
+    "/etc/rate-mirrors/sources/archlinux-tier1-status.json";
 
 #[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct ArchMirror {
     #[allow(dead_code)]
     protocol: String,
@@ -25,6 +26,7 @@ pub struct ArchMirror {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 struct ArchMirrorsData {
     urls: Vec<ArchMirror>,
 }
@@ -48,9 +50,9 @@ pub(crate) fn selected_mirror_source(target: &ArchTarget) -> &str {
 }
 
 impl FetchMirrors for ArchTarget {
-    fn fetch_mirrors(&self, tx_progress: mpsc::Sender<String>) -> Result<Vec<Mirror>, AppError> {
+    fn fetch_mirrors(&self, tx_progress: mpsc::Sender<String>, source_security: &crate::config::SourceSecurityConfig) -> Result<Vec<Mirror>, AppError> {
         let mirrors_data: ArchMirrorsData =
-            fetch_json_or_file(selected_mirror_source(self), self.fetch_mirrors_timeout)?;
+            fetch_json_or_file_with_security(selected_mirror_source(self), self.fetch_mirrors_timeout, source_security)?;
 
         tx_progress
             .send(format!("FETCHED MIRRORS: {}", mirrors_data.urls.len()))
