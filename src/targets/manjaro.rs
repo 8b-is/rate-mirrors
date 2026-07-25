@@ -1,6 +1,6 @@
 // https://wiki.manjaro.org/index.php/Change_to_a_Different_Download_Server
 
-use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_json_or_file_with_security};
+use crate::config::{fetch_json_or_file_with_security, AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
 use crate::target_configs::manjaro::{ManjaroBranch, ManjaroTarget};
@@ -53,9 +53,16 @@ impl LogFormatter for ManjaroTarget {
 }
 
 impl FetchMirrors for ManjaroTarget {
-    fn fetch_mirrors(&self, tx_progress: mpsc::Sender<String>, source_security: &crate::config::SourceSecurityConfig) -> Result<Vec<Mirror>, AppError> {
-        let mirrors_data: Vec<ManjaroMirrorData> =
-            fetch_json_or_file_with_security(&self.mirror_source, self.fetch_mirrors_timeout, source_security)?;
+    fn fetch_mirrors(
+        &self,
+        tx_progress: mpsc::Sender<String>,
+        source_security: &crate::config::SourceSecurityConfig,
+    ) -> Result<Vec<Mirror>, AppError> {
+        let mirrors_data: Vec<ManjaroMirrorData> = fetch_json_or_file_with_security(
+            &self.mirror_source,
+            self.fetch_mirrors_timeout,
+            source_security,
+        )?;
 
         tx_progress
             .send(format!("FETCHED MIRRORS: {}", mirrors_data.len()))

@@ -15,7 +15,7 @@ use crate::target_configs::openbsd::OpenBSDTarget;
 use crate::target_configs::rebornos::RebornOSTarget;
 use crate::target_configs::stdin::StdinTarget;
 // use crate::target_configs::ubuntu::UbuntuTarget;
-use ambassador::{Delegate, delegatable_trait};
+use ambassador::{delegatable_trait, Delegate};
 use clap::{Parser, Subcommand};
 use openssl::sha::sha256;
 use serde::de::DeserializeOwned;
@@ -56,11 +56,15 @@ pub enum AppError {
     RequestError(String),
     #[error("HTTP {status} from {url}")]
     HttpError { status: u16, url: String },
-    #[error("remote mirror source is blocked; pass --allow-remote-sources to permit fetching from {0}")]
+    #[error(
+        "remote mirror source is blocked; pass --allow-remote-sources to permit fetching from {0}"
+    )]
     RemoteSourcesDisabled(String),
     #[error("invalid --mirror-source-sha256 value: expected 64 hex chars")]
     InvalidSourceHash,
-    #[error("mirror source integrity check failed for {path_or_url}: expected {expected}, got {actual}")]
+    #[error(
+        "mirror source integrity check failed for {path_or_url}: expected {expected}, got {actual}"
+    )]
     SourceIntegrityMismatch {
         path_or_url: String,
         expected: String,
@@ -331,11 +335,7 @@ pub struct Config {
     pub allow_remote_sources: bool,
 
     /// Expected SHA-256 hex digest for the selected mirror source input
-    #[arg(
-        env = "RATE_MIRRORS_MIRROR_SOURCE_SHA256",
-        long,
-        value_name = "HEX64"
-    )]
+    #[arg(env = "RATE_MIRRORS_MIRROR_SOURCE_SHA256", long, value_name = "HEX64")]
     pub mirror_source_sha256: Option<String>,
 
     /// Pre-parsed set of excluded country codes (lowercase)
@@ -415,33 +415,6 @@ fn convert_reqwest_error(e: reqwest::Error, url: &str) -> AppError {
     }
 }
 
-pub fn fetch_json<T: DeserializeOwned>(url: &str, timeout_ms: u64) -> Result<T, AppError> {
-    let runtime = Runtime::new().unwrap();
-    let result = runtime.block_on(async {
-        let client = default_client_builder()?;
-        let response = client
-            .get(url)
-            .timeout(Duration::from_millis(timeout_ms))
-            .send()
-            .await
-            .map_err(|e| convert_reqwest_error(e, url))?;
-
-        let status = response.status();
-        if !status.is_success() {
-            return Err(AppError::HttpError {
-                status: status.as_u16(),
-                url: url.to_string(),
-            });
-        }
-
-        response.json::<T>().await.map_err(|e| {
-            AppError::RequestError(format!("failed to decode JSON from {}: {}", url, e))
-        })
-    });
-    runtime.shutdown_timeout(Duration::from_secs(1));
-    result
-}
-
 pub fn fetch_text(url: &str, timeout_ms: u64) -> Result<String, AppError> {
     let runtime = Runtime::new().unwrap();
     let result = runtime.block_on(async {
@@ -467,36 +440,6 @@ pub fn fetch_text(url: &str, timeout_ms: u64) -> Result<String, AppError> {
     });
     runtime.shutdown_timeout(Duration::from_secs(1));
     result
-}
-
-/// Fetches text content from either a remote URL or a local file path.
-/// URLs are detected via `Url::parse`; everything else is treated as a filesystem path.
-/// Used by mirror-list and mirror-source options that can point at a URL or a file.
-pub fn fetch_text_or_file(path_or_url: &str, timeout_ms: u64) -> Result<String, AppError> {
-    fetch_text_or_file_with_security(
-        path_or_url,
-        timeout_ms,
-        &SourceSecurityConfig {
-            allow_remote_sources: true,
-            mirror_source_sha256: None,
-        },
-    )
-}
-
-/// Same as `fetch_text_or_file` but deserializes the result as JSON.
-/// Supports both remote status endpoints and local JSON files for the mirror list source.
-pub fn fetch_json_or_file<T: DeserializeOwned>(
-    path_or_url: &str,
-    timeout_ms: u64,
-) -> Result<T, AppError> {
-    fetch_json_or_file_with_security(
-        path_or_url,
-        timeout_ms,
-        &SourceSecurityConfig {
-            allow_remote_sources: true,
-            mirror_source_sha256: None,
-        },
-    )
 }
 
 fn verify_source_integrity(
@@ -532,7 +475,7 @@ pub fn fetch_text_or_file_with_security(
         fetch_text(path_or_url, timeout_ms)?
     } else {
         fs::read_to_string(path_or_url)
-            .map_err(|e| AppError::RequestError(format!("failed to read mirror source: {}", e)))?;
+            .map_err(|e| AppError::RequestError(format!("failed to read mirror source: {}", e)))?
     };
 
     verify_source_integrity(
@@ -560,8 +503,9 @@ pub fn fetch_json_or_file_with_security<T: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::targets::archlinux::{ARCH_TIER_1_MIRROR_SOURCE, selected_mirror_source};
+    use crate::targets::archlinux::{selected_mirror_source, ARCH_TIER_1_MIRROR_SOURCE};
     use clap::error::ErrorKind;
+    use std::io::Write;
     use std::sync::Mutex;
 
     static MIRROR_SOURCE_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -655,5 +599,64 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn allow_remote_sources_defaults_to_false() {
+        let config = Config::try_parse_from(["rate-mirrors", "stdin"]).unwrap();
+        assert!(!config.allow_remote_sources);
+    }
+
+    #[test]
+    fn allow_remote_sources_can_be_enabled() {
+        let config =
+            Config::try_parse_from(["rate-mirrors", "--allow-remote-sources", "stdin"]).unwrap();
+        assert!(config.allow_remote_sources);
+    }
+
+    #[test]
+    fn source_security_rejects_invalid_sha256() {
+        let config =
+            Config::try_parse_from(["rate-mirrors", "--mirror-source-sha256=abc", "stdin"])
+                .unwrap();
+        assert!(matches!(
+            config.source_security_config(),
+            Err(AppError::InvalidSourceHash)
+        ));
+    }
+
+    #[test]
+    fn remote_source_is_blocked_without_opt_in() {
+        let err = fetch_text_or_file_with_security(
+            "https://example.com/source.txt",
+            1000,
+            &SourceSecurityConfig {
+                allow_remote_sources: false,
+                mirror_source_sha256: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, AppError::RemoteSourcesDisabled(_)));
+    }
+
+    #[test]
+    fn local_source_hash_is_verified() {
+        let temp_path = std::env::temp_dir().join("rate-mirrors-source-hash-test.txt");
+        let mut file = std::fs::File::create(&temp_path).unwrap();
+        file.write_all(b"mirror-source").unwrap();
+        drop(file);
+
+        let ok = fetch_text_or_file_with_security(
+            temp_path.to_str().unwrap(),
+            1000,
+            &SourceSecurityConfig {
+                allow_remote_sources: false,
+                mirror_source_sha256: Some(
+                    "46fae342146d1a05b2d6fa7d29f1390ccf1d8c7eefba5e5919516d0316d70f18".to_string(),
+                ),
+            },
+        );
+        assert!(ok.is_ok());
+        let _ = std::fs::remove_file(temp_path);
     }
 }

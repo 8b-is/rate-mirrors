@@ -1,4 +1,4 @@
-use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_text_or_file_with_security};
+use crate::config::{fetch_text_or_file_with_security, AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
 use crate::target_configs::chaotic::ChaoticTarget;
@@ -33,8 +33,16 @@ impl LogFormatter for ChaoticTarget {
 }
 
 impl FetchMirrors for ChaoticTarget {
-    fn fetch_mirrors(&self, tx_progress: mpsc::Sender<String>, source_security: &crate::config::SourceSecurityConfig) -> Result<Vec<Mirror>, AppError> {
-        let output = fetch_text_or_file_with_security(&self.mirror_list_file, self.fetch_mirrors_timeout, source_security)?;
+    fn fetch_mirrors(
+        &self,
+        tx_progress: mpsc::Sender<String>,
+        source_security: &crate::config::SourceSecurityConfig,
+    ) -> Result<Vec<Mirror>, AppError> {
+        let output = fetch_text_or_file_with_security(
+            &self.mirror_list_file,
+            self.fetch_mirrors_timeout,
+            source_security,
+        )?;
 
         let mut current_country = None;
         let mut mirrors = Vec::new();

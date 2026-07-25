@@ -1,4 +1,4 @@
-use crate::config::{AppError, FetchMirrors, LogFormatter, fetch_json_or_file_with_security};
+use crate::config::{fetch_json_or_file_with_security, AppError, FetchMirrors, LogFormatter};
 use crate::countries::Country;
 use crate::mirror::Mirror;
 use crate::target_configs::archlinux::{ArchMirrorsSortingStrategy, ArchTarget};
@@ -50,9 +50,16 @@ pub(crate) fn selected_mirror_source(target: &ArchTarget) -> &str {
 }
 
 impl FetchMirrors for ArchTarget {
-    fn fetch_mirrors(&self, tx_progress: mpsc::Sender<String>, source_security: &crate::config::SourceSecurityConfig) -> Result<Vec<Mirror>, AppError> {
-        let mirrors_data: ArchMirrorsData =
-            fetch_json_or_file_with_security(selected_mirror_source(self), self.fetch_mirrors_timeout, source_security)?;
+    fn fetch_mirrors(
+        &self,
+        tx_progress: mpsc::Sender<String>,
+        source_security: &crate::config::SourceSecurityConfig,
+    ) -> Result<Vec<Mirror>, AppError> {
+        let mirrors_data: ArchMirrorsData = fetch_json_or_file_with_security(
+            selected_mirror_source(self),
+            self.fetch_mirrors_timeout,
+            source_security,
+        )?;
 
         tx_progress
             .send(format!("FETCHED MIRRORS: {}", mirrors_data.urls.len()))
