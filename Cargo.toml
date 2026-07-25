@@ -2,7 +2,7 @@
 name = "rate_mirrors"
 version = "0.29.0"
 authors = ["Nikita Almakov <nikita.almakov@gmail.com>"]
-edition = "2024"
+edition = "2021"
 description = "Everyday-use client-side map-aware mirror ranking tool (Arch Linux; Manjaro; custom ones)"
 rust-version = "1.85"
 
