@@ -1,0 +1,11 @@
+Server = https://us.cachyos.org/repo/$arch_v3/$repo
+Server = https://cdn.lansing2600.org/cachyos/repo/$arch_v3/$repo
+Server = https://mirrors.lansing2600.org/cachyos/repo/$arch_v3/$repo
+Server = https://mirror.hjk.gg/cachyos/repo/$arch_v3/$repo
+Server = https://ca.mirror.cx/cachyos/repo/$arch_v3/$repo
+Server = https://cdn77.cachyos.org/repo/$arch_v3/$repo
+Server = https://cachyos.doridian.net/repo/$arch_v3/$repo
+Server = https://nl.mirror.cx/cachyos/repo/$arch_v3/$repo
+Server = https://mirror2.keiminem.com/cachyos/repo/$arch_v3/$repo
+Server = https://mirror.krfoss.org/cachyos/repo/$arch_v3/$repo
+Server = https://mirror5.krfoss.org/cachyos/repo/$arch_v3/$repo
