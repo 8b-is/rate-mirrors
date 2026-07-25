@@ -115,6 +115,7 @@ rate-mirrors [OPTIONS] <SUBCOMMAND> [SUBCOMMAND-OPTIONS]
 - The tool doesn't need root; use `--allow-root` if you must run as root
 - Mirror sources are **local-first** by default (`/etc/rate-mirrors/sources/...`); remote mirror-source URLs are blocked unless `--allow-remote-sources` is set
 - Use `--mirror-source-sha256=<hex>` to enforce source integrity checks (fail-closed on mismatch)
+- If the configured local mirror-source file is missing or invalid, the run fails with an error (no implicit remote fallback)
 
 ## Common Options
 
@@ -139,6 +140,7 @@ rate-mirrors [OPTIONS] <SUBCOMMAND> [SUBCOMMAND-OPTIONS]
 - Remote mirror-source ingestion is explicit opt-in only (`--allow-remote-sources`).
 - Mirror-source payload integrity can be pinned with `--mirror-source-sha256`.
 - JSON sources are parsed fail-closed with strict schema validation.
+- Missing local source files fail immediately; explicitly pass `--allow-remote-sources` and a remote `--mirror-source/--mirror-list-file` only when you intend network retrieval.
 
 ### Subcommand Options (arch example)
 

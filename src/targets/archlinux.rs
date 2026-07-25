@@ -10,6 +10,7 @@ use std::sync::mpsc;
 use url::Url;
 
 pub(crate) const ARCH_TIER_1_MIRROR_SOURCE: &str =
+    // Local vetted tier-1 snapshot path; remote fetching requires --allow-remote-sources.
     "/etc/rate-mirrors/sources/archlinux-tier1-status.json";
 
 #[derive(Deserialize, Debug, Clone)]

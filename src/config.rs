@@ -448,10 +448,7 @@ fn verify_source_integrity(
     expected_sha256: Option<&str>,
 ) -> Result<(), AppError> {
     if let Some(expected) = expected_sha256 {
-        let actual: String = sha256(source_content.as_bytes())
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect();
+        let actual = sha256_hex(source_content.as_bytes());
         if actual != expected {
             return Err(AppError::SourceIntegrityMismatch {
                 path_or_url: path_or_url.to_string(),
@@ -461,6 +458,13 @@ fn verify_source_integrity(
         }
     }
     Ok(())
+}
+
+fn sha256_hex(content: &[u8]) -> String {
+    sha256(content)
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }
 
 pub fn fetch_text_or_file_with_security(
