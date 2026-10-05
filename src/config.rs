@@ -349,7 +349,7 @@ pub struct Config {
     /// Skip cross-checking ranked mirrors against each other. By default the
     ///   repository database each mirror serves is fingerprinted, and a mirror
     ///   serving one no other mirror has is dropped from the output.
-    #[arg(env = "RATE_MIRRORS_NO_VERIFY_MIRRORS", long, verbatim_doc_comment)]
+    #[arg(env = "RATE_MIRRORS_NO_VERIFY_MIRRORS", long, verbatim_doc_comment, conflicts_with_all = ["require_dnssec", "max_mirror_age"])]
     pub no_verify_mirrors: bool,
 
     /// Drop mirrors whose repository database was last synced more than this
@@ -374,7 +374,12 @@ pub struct Config {
 
     /// Drop mirrors whose hostname is not in a DNSSEC-signed zone. Most distro
     ///   mirrors are still unsigned, so this discards much of the pool.
-    #[arg(env = "RATE_MIRRORS_REQUIRE_DNSSEC", long, verbatim_doc_comment)]
+    #[arg(
+        env = "RATE_MIRRORS_REQUIRE_DNSSEC",
+        long,
+        verbatim_doc_comment,
+        conflicts_with = "no_dnssec_check"
+    )]
     pub require_dnssec: bool,
 
     /// DNS-over-HTTPS endpoint used for the DNSSEC lookup. Queried out of band
@@ -393,6 +398,10 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn allows_untested_fallback(&self) -> bool {
+        !self.disable_untested_fallback && !self.require_dnssec && self.max_mirror_age.is_none()
+    }
+
     pub fn new() -> Self {
         let mut config = Self::parse();
         config.excluded_countries_set = config
@@ -691,5 +700,30 @@ mod tests {
             Err(AppError::SourceIntegrityMismatch { .. })
         ));
         assert!(verify_source_integrity("src", "anything", None).is_ok());
+    }
+    #[test]
+    fn explicit_verification_disables_untested_fallback() {
+        for flag in [
+            "--require-dnssec",
+            "--max-mirror-age=24",
+            "--disable-untested-fallback",
+        ] {
+            let config = Config::try_parse_from(["rate-mirrors", flag, "stdin"]).unwrap();
+            assert!(!config.allows_untested_fallback());
+        }
+        assert!(Config::try_parse_from(["rate-mirrors", "stdin"])
+            .unwrap()
+            .allows_untested_fallback());
+    }
+
+    #[test]
+    fn contradictory_verification_flags_are_rejected() {
+        for (a, b) in [
+            ("--require-dnssec", "--no-verify-mirrors"),
+            ("--max-mirror-age=24", "--no-verify-mirrors"),
+            ("--require-dnssec", "--no-dnssec-check"),
+        ] {
+            assert!(Config::try_parse_from(["rate-mirrors", a, b, "stdin"]).is_err());
+        }
     }
 }

@@ -190,9 +190,11 @@ resolver or a single bad operator can manufacture. Mirrors that are simply behin
 still pass — a lagging database generation that two or more mirrors share is
 corroborated, so honest mirrors are not punished for sync timing.
 
-**Verification never returns an empty mirrorlist.** If every mirror fails, the
-ranking is returned unverified with a warning, because an unattended installer
-writing an empty list would leave a machine with no repositories at all.
+**By default, verification falls back to the unverified ranking** if every mirror
+fails. Explicit `--require-dnssec` or `--max-mirror-age` constraints disable this
+fallback and the untested speed-test fallback. If no mirror remains, the command
+fails before replacing a `--save` file. These constraints cannot be combined with
+`--no-verify-mirrors`; `--require-dnssec` also conflicts with `--no-dnssec-check`.
 
 ### DNSSEC
 

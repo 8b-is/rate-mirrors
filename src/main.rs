@@ -163,7 +163,7 @@ fn run() -> Result<(), AppError> {
         return Err(AppError::Root);
     }
     let max_mirrors_to_output = config.max_mirrors_to_output.clone();
-    let disable_untested_fallback = config.disable_untested_fallback;
+    let disable_untested_fallback = !config.allows_untested_fallback();
     let source_security = config.source_security_config()?;
     let verify_settings = (!config.no_verify_mirrors).then(|| VerifyConfig {
         concurrency: config.concurrency,
