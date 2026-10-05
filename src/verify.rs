@@ -161,6 +161,15 @@ pub fn verify_mirrors(
 
     let probes = probe_all(&results, config)?;
 
+    evaluate_probes(results, probes, config, tx_progress)
+}
+
+fn evaluate_probes(
+    results: Vec<SpeedTestResult>,
+    probes: Vec<MirrorProbe>,
+    config: &VerifyConfig,
+    tx_progress: &mpsc::Sender<String>,
+) -> Result<VerificationReport, AppError> {
     // Group comparable mirrors by what they are serving.
     let mut groups: HashMap<String, usize> = HashMap::new();
     for probe in probes.iter() {
@@ -223,10 +232,10 @@ pub fn verify_mirrors(
         accepted = apply_dnssec_preference(accepted, accepted_signed);
     }
 
-    // Never hand back an empty mirrorlist. An unattended installer would write
-    // it straight into pacman.conf and leave the machine with no repos at all,
-    // which is a worse outcome than the risk this pass exists to reduce.
-    if accepted.is_empty() {
+    // Preserve the availability fallback only when no explicit verification
+    // constraint was requested. An empty accepted set reaches BlankOutput in
+    // the caller before a saved mirror list is opened or replaced.
+    if accepted.is_empty() && !config.require_dnssec && config.max_age.is_none() {
         let abandoned = format!(
             "every mirror failed verification ({} checked); keeping the ranking unverified",
             rejected.len()
@@ -701,5 +710,55 @@ mod tests {
             Fingerprint::Signature("42".into()).key(),
             Fingerprint::Size(42).key()
         );
+    }
+    #[test]
+    fn explicit_constraints_do_not_restore_rejected_mirrors() {
+        for require_dnssec in [false, true] {
+            let mut config = cfg(Some(Duration::from_secs(10)));
+            config.require_dnssec = require_dnssec;
+            let (tx, _rx) = mpsc::channel();
+            let report = evaluate_probes(
+                vec![result("example.invalid", 100)],
+                vec![probe(
+                    Some(Fingerprint::Size(100)),
+                    Some(Duration::from_secs(20)),
+                )],
+                &config,
+                &tx,
+            )
+            .unwrap();
+            assert!(report.accepted.is_empty());
+            assert_eq!(report.rejected.len(), 1);
+            assert!(report.abandoned.is_none());
+        }
+    }
+
+    #[test]
+    fn dnssec_only_constraint_does_not_restore_unsigned_mirrors() {
+        let mut config = cfg(None);
+        config.require_dnssec = true;
+        let (tx, _rx) = mpsc::channel();
+        let report = evaluate_probes(
+            vec![result("example.invalid", 100)],
+            vec![probe(Some(Fingerprint::Size(100)), None)],
+            &config,
+            &tx,
+        )
+        .unwrap();
+        assert!(report.accepted.is_empty());
+    }
+
+    #[test]
+    fn default_unverified_fallback_is_preserved() {
+        let (tx, _rx) = mpsc::channel();
+        let report = evaluate_probes(
+            vec![result("example.invalid", 100)],
+            vec![probe(None, None)],
+            &cfg(None),
+            &tx,
+        )
+        .unwrap();
+        assert_eq!(report.accepted.len(), 1);
+        assert!(report.abandoned.is_some());
     }
 }
